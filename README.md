@@ -10,6 +10,8 @@ __get-static-paths.py:__ Currently a work in progress. This script will create a
 Sample data in the above lists
 
 ```python
+# [epg name, encapsulation, mode, node, interface]
+
 eth_paths = [
     ["DD_epg", "666", "access", "201", "eth1/2"],
     ["DD_epg", "666", "access", "202", "eth1/2"],
