@@ -2,10 +2,10 @@
 This repo uses ACI Cobra and ACI model to query ACI and to create objects. The wheels for these modules must be obtained from a production APIC (sandboxes don't have them).
 
 ## Getting data
-__get-static-paths.py:__ Currently a work in progress. This script will create a CSV of all static path bindings. As of now, the script separates static paths into these two lists of lists:
+__get-static-paths.py:__ This script creates a CSV of all static path bindings. __TODO: create the CSV of values in eth_paths__
 
 * __`eth_paths`:__ List of static paths for single interfaces. This is reflected by interfaces named `eth1/\d{1,2}`.
-* __`aggregate_paths`:__ List of static paths for port channels. Since static paths to port channels (both direct and vPC) show the port selector name instead of the physical interfaces, the script will then look at all port selectors whose name matches the interfaces in this list and get the physical interfaces in their port blocks so we can add them to the list of `eth_paths`. That functionality has not yet been added.
+* __`aggregate_paths`:__ List of static paths for port channels. Since static paths to port channels (both direct and vPC) show the port selector name instead of the physical interfaces, the script looks at all port selectors whose name matches the interfaces in this list and adds the physical interfaces in their port blocks to the list of `eth_paths`.
 
 Sample data in the above lists
 
