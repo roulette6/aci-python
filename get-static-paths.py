@@ -2,7 +2,6 @@ from cobra.mit.session import LoginSession
 from cobra.mit.access import MoDirectory
 import urllib3
 import re
-from pprint import pprint
 
 # create session
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
