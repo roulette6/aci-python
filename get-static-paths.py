@@ -7,15 +7,48 @@ import urllib3
 
 
 def main():
+    sandbox_mo_dir = aci_login("aci.vm.jm", "admin", "1234QWer")
+
+    # dict of dicts whose outer keys are the port channel names
+    # and inner keys are ifp, from_port, to_port
+    port_channels = get_port_channels(sandbox_mo_dir)
+
+    # list of dicts whose keys are epg, encapsulation, mode, node, interface
+    static_paths = get_static_paths(sandbox_mo_dir, port_channels)
+
+    with open("static_paths.csv", "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file, fieldnames=["epg", "VLAN", "mode", "node", "interface"]
+        )
+        writer.writeheader()
+        for path in static_paths:
+            writer.writerow(
+                {
+                    "epg": path["epg"],
+                    "VLAN": path["vlan"],
+                    "mode": path["mode"],
+                    "node": path["node"],
+                    "interface": path["intf"],
+                }
+            )
+
+    sandbox_mo_dir.logout()
+
+
+def aci_login(apic, username, password):
+    # TODO: write docstring
     # create session
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    apic, username, pw = ["https://aci.vm.jm", "admin", "1234QWer"]
-    session = LoginSession(apic, username, pw)
+    session = LoginSession(f"https://{apic}", username, password)
     mo_dir = MoDirectory(session)
 
     # login
     mo_dir.login()
+    return mo_dir
 
+
+def get_port_channels(mo_dir):
+    # TODO: write docstring
     # create list of port channels dicts for static path lookups
     # [ifp, port_sel_name, from_port, to_port]
     port_channels = {}
@@ -32,73 +65,100 @@ def main():
         # a direct port channel will have a to_port that's greater than the
         # for port, and a vPC will be in a leaf interface profile that has
         # a "_" or "ucs" in the name
-        if to_port > from_port or "_" in ifp:
-            port_channels[port_sel_name] = [ifp, from_port, to_port]
+        if to_port > from_port or "_" in ifp[:-4]:
+            port_channels[port_sel_name] = {
+                "ifp": ifp,
+                "from_port": from_port,
+                "to_port": to_port,
+            }
 
+    return port_channels
+
+
+def get_static_paths(mo_dir, port_channels):
+    # TODO: write docstring
     # create two lists of static path bindings: one for
     # physical interfaces and one for port channels
     # [epg, encapsulation, mode, node, interface]
-    eth_paths = []
-    aggregate_paths = []
+    static_paths = []
     paths = mo_dir.lookupByClass("fvRsPathAtt")
 
     for path in paths:
-        path_dn = str(path.dn)
         path_results = re.search(
-            r"epg-(?P<epg>.*?)/.*paths-(?P<node>.*)/pathep-\[(?P<intf>.*)]]", path_dn
+            r"epg-(?P<epg>.*?)/.*paths-(?P<node>.*)/pathep-\[(?P<intf>.*)]]",
+            str(path.dn),
         )
 
         epg = path_results.group("epg")
         node = path_results.group("node")
         intf = path_results.group("intf")
         mode = "trunk" if "regular" in path.mode else "access"
-        path_data = [epg, path.encap[5:], mode, node, intf]
+        path_data = {
+            "epg": epg,
+            "vlan": path.encap[5:],
+            "mode": mode,
+            "node": node,
+            "intf": intf,
+        }
 
-        # add path data to eth_paths if there'sa "/" in the interface name,
+        # add path data to static_paths if there'sa "/" in the interface name,
         # which means it's a physical interface, else add to aggregate_paths
-        eth_paths.append(path_data) if "/" in path_data[4] else aggregate_paths.append(
-            path_data
-        )
-
-    # look up the port channel members for each aggregate path
-    # and add them to eth_paths
-    for path in aggregate_paths:
-        # if direct po...
-        if "-" not in path[3]:
-            for i in range(port_channels[path[4]][1], port_channels[path[4]][2] + 1):
-                eth_paths.append([path[0], path[1], path[2], path[3], f"eth1/{i}"])
-        # if vPC...
+        if "/" in path_data["intf"]:
+            static_paths.append(path_data)
         else:
-            # this will fail if there's no port selector for the spath
-            try:
-                eth_paths.append(
-                    [
-                        path[0],
-                        path[1],
-                        path[2],
-                        path[3][:3],
-                        f"eth1/{port_channels[path[4]][1]}",
-                    ]
-                )
-                eth_paths.append(
-                    [
-                        path[0],
-                        path[1],
-                        path[2],
-                        path[3][-3:],
-                        f"eth1/{port_channels[path[4]][1]}",
-                    ]
-                )
-            except KeyError:
-                print("This spath is bogus:", path)
+            physical_paths = get_path_interfaces(path_data, port_channels)
+            for path in physical_paths:
+                static_paths.append(path)
 
-    with open("static_paths.csv", "w") as file:
-        writer = csv.writer(file)
-        writer.writerow(["epg", "VLAN", "mode", "node", "interface"])
-        for path in eth_paths:
-            writer.writerow(path)
+    return static_paths
 
-    mo_dir.logout()
+
+def get_path_interfaces(po_path_data, port_channels):
+    # TODO: write docstring
+    # look up the port channel members for each aggregate path
+    # and return static path
+    physical_static_paths = []
+    # if direct po...
+    if "-" not in po_path_data["node"]:
+        for i in range(
+            port_channels[po_path_data["intf"]]["from_port"],
+            port_channels[po_path_data["intf"]]["to_port"] + 1,
+        ):
+            physical_static_paths.append(
+                {
+                    "epg": po_path_data["epg"],
+                    "vlan": po_path_data["vlan"],
+                    "mode": po_path_data["mode"],
+                    "node": po_path_data["node"],
+                    "intf": f"eth1/{i}",
+                }
+            )
+    # if vPC...
+    else:
+        # this will fail if there's no port selector for the spath
+        try:
+            physical_static_paths.append(
+                {
+                    "epg": po_path_data["epg"],
+                    "vlan": po_path_data["vlan"],
+                    "mode": po_path_data["mode"],
+                    "node": po_path_data["node"][:3],
+                    "intf": f"eth1/{port_channels[po_path_data['intf']]['from_port']}",
+                }
+            )
+            physical_static_paths.append(
+                {
+                    "epg": po_path_data["epg"],
+                    "vlan": po_path_data["vlan"],
+                    "mode": po_path_data["mode"],
+                    "node": po_path_data["node"][-3:],
+                    "intf": f"eth1/{port_channels[po_path_data['intf']]['from_port']}",
+                }
+            )
+        except KeyError:
+            print("This spath is bogus:", po_path_data)
+
+    return physical_static_paths
 
 
 if __name__ == "__main__":
