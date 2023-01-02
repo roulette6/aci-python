@@ -18,7 +18,7 @@ def main():
 
     with open("static_paths.csv", "w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(
-            file, fieldnames=["epg", "VLAN", "mode", "node", "interface"]
+            file, fieldnames=["epg", "VLAN", "mode", "node", "interface", "port-channel",]
         )
         writer.writeheader()
         for path in static_paths:
@@ -29,6 +29,7 @@ def main():
                     "mode": path["mode"],
                     "node": path["node"],
                     "interface": path["intf"],
+                    "port-channel": path["port-channel"]
                 }
             )
 
@@ -68,6 +69,7 @@ def get_port_channels(mo_dir):
         if to_port > from_port or "_" in ifp[:-4]:
             port_channels[port_sel_name] = {
                 "ifp": ifp,
+                "port_sel_name": port_sel_name,
                 "from_port": from_port,
                 "to_port": to_port,
             }
@@ -104,6 +106,7 @@ def get_static_paths(mo_dir, port_channels):
         # add path data to static_paths if there'sa "/" in the interface name,
         # which means it's a physical interface, else add to aggregate_paths
         if "/" in path_data["intf"]:
+            path_data["port-channel"] = "none"
             static_paths.append(path_data)
         else:
             physical_paths = get_path_interfaces(path_data, port_channels)
@@ -131,6 +134,7 @@ def get_path_interfaces(po_path_data, port_channels):
                     "mode": po_path_data["mode"],
                     "node": po_path_data["node"],
                     "intf": f"eth1/{i}",
+                    "port-channel": port_channels[po_path_data['intf']]["port_sel_name"],
                 }
             )
     # if vPC...
@@ -144,6 +148,7 @@ def get_path_interfaces(po_path_data, port_channels):
                     "mode": po_path_data["mode"],
                     "node": po_path_data["node"][:3],
                     "intf": f"eth1/{port_channels[po_path_data['intf']]['from_port']}",
+                    "port-channel": port_channels[po_path_data['intf']]["port_sel_name"],
                 }
             )
             physical_static_paths.append(
@@ -153,6 +158,7 @@ def get_path_interfaces(po_path_data, port_channels):
                     "mode": po_path_data["mode"],
                     "node": po_path_data["node"][-3:],
                     "intf": f"eth1/{port_channels[po_path_data['intf']]['from_port']}",
+                    "port-channel": port_channels[po_path_data['intf']]["port_sel_name"],
                 }
             )
         except KeyError:
