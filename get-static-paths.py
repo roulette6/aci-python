@@ -18,7 +18,15 @@ def main():
 
     with open("static_paths.csv", "w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(
-            file, fieldnames=["epg", "VLAN", "mode", "node", "interface", "port-channel",]
+            file,
+            fieldnames=[
+                "epg",
+                "VLAN",
+                "mode",
+                "node",
+                "interface",
+                "port-channel",
+            ],
         )
         writer.writeheader()
         for path in static_paths:
@@ -29,7 +37,7 @@ def main():
                     "mode": path["mode"],
                     "node": path["node"],
                     "interface": path["intf"],
-                    "port-channel": path["port-channel"]
+                    "port-channel": path["port-channel"],
                 }
             )
 
@@ -37,21 +45,39 @@ def main():
 
 
 def aci_login(apic, username, password):
-    # TODO: write docstring
+    """
+    Create and return an ACI MoDirectery session object.
+
+    Args:
+        apic (str): FQDN or IP address of the APIC
+        username (str): APIC username
+        password (str): APIC password
+
+    Returns:
+        obj: MoDirectory login session object
+    """
     # create session
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     session = LoginSession(f"https://{apic}", username, password)
     mo_dir = MoDirectory(session)
 
-    # login
+    # login and return object
     mo_dir.login()
     return mo_dir
 
 
 def get_port_channels(mo_dir):
-    # TODO: write docstring
-    # create list of port channels dicts for static path lookups
-    # [ifp, port_sel_name, from_port, to_port]
+    """
+    Return a dict of port channel dicts.
+
+    Args:
+        mo_dir (obj): ACI MoDirectory session object
+
+    Returns:
+        dict: Dict of port channel dicts whose outer keys are the port
+        selector names and inner keys are ifp, port_sel_name, from_port,
+        and to_port.
+    """
     port_channels = {}
     port_blocks = mo_dir.lookupByClass("infraPortBlk")
     for blk in port_blocks:
@@ -78,13 +104,25 @@ def get_port_channels(mo_dir):
 
 
 def get_static_paths(mo_dir, port_channels):
-    # TODO: write docstring
-    # create two lists of static path bindings: one for
-    # physical interfaces and one for port channels
-    # [epg, encapsulation, mode, node, interface]
+    """
+    Return a list of dicts of static path data.
+
+    Args:
+        mo_dir (obj): ACI MoDirectory session object
+        port_channels (dict): Dict of port channel dicts
+
+    Returns:
+        list: List of static path binding data dicts whose keys are epg, vlan,
+        mode, node, interface, and port-channel.
+    """
+    # create empty list of static path bindings
     static_paths = []
+
+    # get all static paths
     paths = mo_dir.lookupByClass("fvRsPathAtt")
 
+    # iterate over paths and get epg, vlan encapsulation, mode, node,
+    # and interface as dicts.
     for path in paths:
         path_results = re.search(
             r"epg-(?P<epg>.*?)/.*paths-(?P<node>.*)/pathep-\[(?P<intf>.*)]]",
@@ -103,8 +141,9 @@ def get_static_paths(mo_dir, port_channels):
             "intf": intf,
         }
 
-        # add path data to static_paths if there'sa "/" in the interface name,
-        # which means it's a physical interface, else add to aggregate_paths
+        # add path data to static_paths list. If there's a "/" in the interface
+        # name, add it immediately. Else, look up the port selector in the list
+        # of port channels and add the physical interfaces to the list.
         if "/" in path_data["intf"]:
             path_data["port-channel"] = "none"
             static_paths.append(path_data)
@@ -117,7 +156,18 @@ def get_static_paths(mo_dir, port_channels):
 
 
 def get_path_interfaces(po_path_data, port_channels):
-    # TODO: write docstring
+    """
+    Return a list of dicts of static path data.
+
+    Args:
+        po_path_data (dict): Dict of static path binding data whose interface
+            is a port selector name rather than a physical interface.
+        port_channels (dict): Dict of port channel dicts
+
+    Returns:
+        list: List of indidivual physical interface static path binding data
+        for the port channel provided in po_path_data.
+    """
     # look up the port channel members for each aggregate path
     # and return static path
     physical_static_paths = []
@@ -134,7 +184,9 @@ def get_path_interfaces(po_path_data, port_channels):
                     "mode": po_path_data["mode"],
                     "node": po_path_data["node"],
                     "intf": f"eth1/{i}",
-                    "port-channel": port_channels[po_path_data['intf']]["port_sel_name"],
+                    "port-channel": port_channels[po_path_data["intf"]][
+                        "port_sel_name"
+                    ],
                 }
             )
     # if vPC...
@@ -148,7 +200,9 @@ def get_path_interfaces(po_path_data, port_channels):
                     "mode": po_path_data["mode"],
                     "node": po_path_data["node"][:3],
                     "intf": f"eth1/{port_channels[po_path_data['intf']]['from_port']}",
-                    "port-channel": port_channels[po_path_data['intf']]["port_sel_name"],
+                    "port-channel": port_channels[po_path_data["intf"]][
+                        "port_sel_name"
+                    ],
                 }
             )
             physical_static_paths.append(
@@ -158,10 +212,14 @@ def get_path_interfaces(po_path_data, port_channels):
                     "mode": po_path_data["mode"],
                     "node": po_path_data["node"][-3:],
                     "intf": f"eth1/{port_channels[po_path_data['intf']]['from_port']}",
-                    "port-channel": port_channels[po_path_data['intf']]["port_sel_name"],
+                    "port-channel": port_channels[po_path_data["intf"]][
+                        "port_sel_name"
+                    ],
                 }
             )
         except KeyError:
+            # If there's a static path without a corresponding port selector,
+            # a lookup will result in a key error in the port_channels dict.
             print("This spath is bogus:", po_path_data)
 
     return physical_static_paths
