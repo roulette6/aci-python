@@ -15,33 +15,10 @@ def main():
 
     # list of dicts whose keys are epg, encapsulation, mode, node, interface
     static_paths = get_static_paths(sandbox_mo_dir, port_channels)
-
-    with open("static_paths.csv", "w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "epg",
-                "VLAN",
-                "mode",
-                "node",
-                "interface",
-                "port-channel",
-            ],
-        )
-        writer.writeheader()
-        for path in static_paths:
-            writer.writerow(
-                {
-                    "epg": path["epg"],
-                    "VLAN": path["vlan"],
-                    "mode": path["mode"],
-                    "node": path["node"],
-                    "interface": path["intf"],
-                    "port-channel": path["port-channel"],
-                }
-            )
-
     sandbox_mo_dir.logout()
+
+    # write static paths to a CSV file
+    create_spath_csv_file(static_paths, "static_paths.csv", "w")
 
 
 def aci_login(apic, username, password):
@@ -191,7 +168,7 @@ def get_path_interfaces(po_path_data, port_channels):
             )
     # if vPC...
     else:
-        # this will fail if there's no port selector for the spath
+        # This will fail if there's no port selector for the spath
         try:
             physical_static_paths.append(
                 {
@@ -223,6 +200,42 @@ def get_path_interfaces(po_path_data, port_channels):
             print("This spath is bogus:", po_path_data)
 
     return physical_static_paths
+
+
+def create_spath_csv_file(static_paths, file_name, mode):
+    """
+    Create a CSV file of static path data or append to an existing file.
+
+    Args:
+        static_paths (list): List of static path dicts whose keys are epg,
+            vlan, mode, node, interface, and port-channel.
+        file_name (str): Name of file to create or append to.
+        mode (str): Mode for opening the file.
+    """
+    with open(file_name, mode, newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "epg",
+                "VLAN",
+                "mode",
+                "node",
+                "interface",
+                "port-channel",
+            ],
+        )
+        writer.writeheader()
+        for path in static_paths:
+            writer.writerow(
+                {
+                    "epg": path["epg"],
+                    "VLAN": path["vlan"],
+                    "mode": path["mode"],
+                    "node": path["node"],
+                    "interface": path["intf"],
+                    "port-channel": path["port-channel"],
+                }
+            )
 
 
 if __name__ == "__main__":
