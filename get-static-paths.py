@@ -1,7 +1,7 @@
 from cobra.mit.session import LoginSession
 from cobra.mit.access import MoDirectory
 from getpass import getpass
-import csv
+import json
 import re
 import urllib3
 
@@ -18,9 +18,13 @@ def main():
     static_paths, bogus_static_paths = get_static_paths(sandbox_mo_dir, port_selectors)
     sandbox_mo_dir.logout()
 
-    # write static paths to a CSV file
-    file_name = "static_paths.csv"
-    create_spath_csv_file(static_paths, file_name, "w")
+    # create list of interface vlan dicts
+    interface_vlans = collate_interface_vlans(static_paths)
+
+    # write static paths to a JSON file
+    file_name = "static_paths.json"
+    with open(file_name, "w", newline="", encoding="utf-8") as file:
+        json.dump(interface_vlans, file, indent=2)
 
     # write bogus paths to a text file if they exist
     if bogus_static_paths:
@@ -206,40 +210,33 @@ def get_path_interfaces(po_path_data, port_selectors):
     return physical_static_paths
 
 
-def create_spath_csv_file(static_paths, file_name, mode):
+def collate_interface_vlans(static_paths):
     """
-    Create a CSV file of static path data or append to an existing file.
+    Return a dict of interface VLAN data for netbox.
 
     Args:
-        static_paths (list): List of static path dicts whose keys are epg,
-            vlan, mode, node, interface, and port-channel.
-        file_name (str): Name of file to create or append to.
-        mode (str): Mode for opening the file.
+        static_paths (list): List of static path dicts
+
+    Returns:
+        dict: Dict of interface VLAN data
     """
-    with open(file_name, mode, newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "epg",
-                "VLAN",
-                "mode",
-                "node",
-                "interface",
-                "port-channel",
-            ],
-        )
-        writer.writeheader()
-        for path in static_paths:
-            writer.writerow(
-                {
-                    "epg": path["epg"],
-                    "VLAN": path["vlan"],
-                    "mode": path["mode"],
-                    "node": path["node"],
-                    "interface": path["intf"],
-                    "port-channel": path["port-channel"],
-                }
-            )
+    interface_vlans = {}
+    for path in static_paths:
+        # create a dict for the interface if not exists
+        sw_intf = f"{path['node']}__{path['intf']}"
+        if sw_intf not in interface_vlans.keys():
+            interface_vlans[sw_intf] = {
+                "switch": path["node"],
+                "intf": path["intf"],
+                "tagged": [],
+                "untagged": "",
+            }
+        if path["mode"] == "access":
+            interface_vlans[sw_intf]["untagged"] = path["vlan"]
+        elif path["mode"] == "trunk":
+            interface_vlans[sw_intf]["tagged"].append(path["vlan"])
+
+    return interface_vlans
 
 
 if __name__ == "__main__":
